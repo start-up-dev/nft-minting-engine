@@ -9,7 +9,6 @@
     "@testing-library/user-event": "^13.5.0",
     "axios": "^1.7.7",
     "buffer": "^6.0.3",
-    "ethers": "^6.13.2",
     "ipfs-http-client": "^60.0.1",
     "pinata-web3": "^0.4.1",
     "react": "^18.3.1",
@@ -42,8 +41,11 @@
     ]
   },
   "devDependencies": {
+    "@nomicfoundation/hardhat-ethers": "^3.0.8",
     "@nomicfoundation/hardhat-toolbox": "^5.0.0",
     "autoprefixer": "^10.4.20",
+    "dotenv": "^16.4.5",
+    "ethers": "^6.13.2",
     "hardhat": "^2.22.10",
     "postcss": "^8.4.45",
     "tailwindcss": "^3.4.10"
