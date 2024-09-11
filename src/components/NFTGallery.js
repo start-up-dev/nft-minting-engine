@@ -103,12 +103,16 @@ function NFTGallery() {
 
   const fetchNFTHistory = async (tokenId) => {
     try {
-      const url = `${ETHERSCAN_API_URL}?module=account&action=tokennfttx&contractaddress=${contractAddress}&tokenid=${tokenId}&sort=asc&apikey=${ETHERSCAN_API_KEY}`;
+      const url = `${ETHERSCAN_API_URL}?module=account&action=tokennfttx&contractaddress=${contractAddress}&sort=asc&apikey=${ETHERSCAN_API_KEY}`;
       const response = await fetch(url);
       const data = await response.json();
 
       if (data.status === "1" && data.result.length > 0) {
-        return data.result.map((tx) => ({
+        // Filter transactions for the specific tokenId
+        const filteredTransactions = data.result.filter(
+          (tx) => tx.tokenID === tokenId.toString()
+        );
+        return filteredTransactions.map((tx) => ({
           from: tx.from,
           to: tx.to,
           timestamp: new Date(tx.timeStamp * 1000).toLocaleString(),
@@ -183,8 +187,7 @@ function NFTGallery() {
                 )}
                 <div className="flex flex-wrap gap-4">
                   <p className="text-gray-600">
-                    <span className="font-semibold">Owner:</span>{" "}
-                    {nft.owner.slice(0, 6)}...{nft.owner.slice(-4)}
+                    <span className="font-semibold">Owner:</span> {nft.owner}
                   </p>
                   <p className="text-gray-600">
                     <span className="font-semibold">Token URI:</span>{" "}
@@ -194,7 +197,7 @@ function NFTGallery() {
                       rel="noopener noreferrer"
                       className="text-blue-500 hover:underline"
                     >
-                      {nft.tokenURI.slice(0, 20)}...
+                      {nft.tokenURI}
                     </a>
                   </p>
                 </div>

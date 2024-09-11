@@ -21,8 +21,6 @@ function Minter() {
   const [isLoading, setIsLoading] = useState(false);
   const [mintingStep, setMintingStep] = useState("");
   const [contract, setContract] = useState(null);
-  const [mintedNFTs, setMintedNFTs] = useState([]);
-  const [totalMinted, setTotalMinted] = useState(0);
 
   useEffect(() => {
     checkWalletConnection();
@@ -120,18 +118,6 @@ function Minter() {
       console.log("NFT minted successfully!");
       setMintingStep("NFT minted successfully!");
 
-      // After successful minting
-      const newNFT = {
-        id: Date.now(), // Use a unique identifier
-        name: name,
-        description: description,
-        owner: address,
-        tokenURI: `ipfs://${metadataHash}`,
-        image: `ipfs://${ipfsHash}`,
-      };
-
-      setMintedNFTs((prevNFTs) => [...prevNFTs, newNFT]);
-
       // Reset form fields
       setFile(null);
       setName("");
@@ -158,9 +144,6 @@ function Minter() {
           "totalSupply function not found in the contract. Fetching NFTs by ID."
         );
         await fetchNFTsByID(contract);
-      } else {
-        const totalSupply = await contract.totalSupply();
-        setTotalMinted(totalSupply.toNumber());
       }
     } catch (error) {
       console.error("Error fetching NFT data:", error);
@@ -169,18 +152,15 @@ function Minter() {
 
   const fetchNFTsByID = async (contract) => {
     let tokenId = 1;
-    let totalMinted = 0;
     while (true) {
       try {
         await contract.tokenURI(tokenId);
-        totalMinted++;
         tokenId++;
       } catch (error) {
         console.log(`No more NFTs found after ID ${tokenId - 1}`);
         break;
       }
     }
-    setTotalMinted(totalMinted);
   };
 
   useEffect(() => {
