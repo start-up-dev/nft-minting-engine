@@ -12,46 +12,59 @@ function NFTGallery() {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
+    const fetchNFTs = async () => {
+      try {
+        if (!SEPOLIA_RPC_URL) {
+          throw new Error("Sepolia RPC URL is not set");
+        }
+
+        const provider = new ethers.JsonRpcProvider(SEPOLIA_RPC_URL);
+        const contract = new ethers.Contract(
+          contractAddress,
+          NFT.abi,
+          provider
+        );
+
+        // Check if totalSupply function exists
+        if (typeof contract.totalSupply !== "function") {
+          console.warn(
+            "totalSupply function not found in the contract. Fetching NFTs by ID."
+          );
+          await fetchNFTsByID(contract);
+        } else {
+          const totalSupply = await contract.totalSupply();
+          console.log(`Total Supply: ${totalSupply.toString()}`);
+          await fetchNFTsBySupply(contract, totalSupply);
+        }
+
+        setLoading(false);
+      } catch (error) {
+        console.error("Error fetching NFTs:", error);
+        setLoading(false);
+      }
+    };
+
     fetchNFTs();
   }, []);
 
-  const fetchNFTs = async () => {
-    try {
-      if (!SEPOLIA_RPC_URL) {
-        throw new Error("Sepolia RPC URL is not set");
-      }
-
-      const provider = new ethers.JsonRpcProvider(SEPOLIA_RPC_URL);
-      const contract = new ethers.Contract(contractAddress, NFT.abi, provider);
-
-      // Check if totalSupply function exists
-      if (typeof contract.totalSupply !== "function") {
-        console.warn(
-          "totalSupply function not found in the contract. Fetching NFTs by ID."
-        );
-        await fetchNFTsByID(contract);
-      } else {
-        const totalSupply = await contract.totalSupply();
-        await fetchNFTsBySupply(contract, totalSupply);
-      }
-
-      setLoading(false);
-    } catch (error) {
-      console.error("Error fetching NFTs:", error);
-      setLoading(false);
-    }
-  };
-
   const fetchNFTsBySupply = async (contract, totalSupply) => {
     const fetchedNFTs = [];
-    for (let tokenId = 1; tokenId <= totalSupply.toNumber(); tokenId++) {
+    const supply =
+      typeof totalSupply === "object" && totalSupply.toNumber
+        ? totalSupply.toNumber()
+        : Number(totalSupply);
+
+    for (let tokenId = 1; tokenId <= supply; tokenId++) {
       try {
         const nft = await fetchSingleNFT(contract, tokenId);
-        fetchedNFTs.push(nft);
+        if (nft) {
+          fetchedNFTs.push(nft); // Only push if the NFT exists
+        }
       } catch (error) {
         console.error(`Error fetching NFT ${tokenId}:`, error);
       }
     }
+    console.log(`Fetched NFTs: ${fetchedNFTs.length}`);
     setNfts(fetchedNFTs);
   };
 
@@ -61,29 +74,48 @@ function NFTGallery() {
     while (true) {
       try {
         const nft = await fetchSingleNFT(contract, tokenId);
-        fetchedNFTs.push(nft);
+        if (nft) {
+          fetchedNFTs.push(nft); // Only push if the NFT exists
+        }
         tokenId++;
       } catch (error) {
-        console.log(`No more NFTs found after ID ${tokenId - 1}`);
-        break;
+        if (error.reason === "Token does not exist") {
+          console.log(`No more NFTs found after ID ${tokenId - 1}`);
+          break;
+        } else {
+          console.error(`Error fetching NFT ${tokenId}:`, error);
+        }
       }
     }
+    console.log(`Fetched NFTs: ${fetchedNFTs.length}`);
     setNfts(fetchedNFTs);
   };
 
   const fetchSingleNFT = async (contract, tokenId) => {
-    const tokenURI = await contract.tokenURI(tokenId);
-    const owner = await contract.ownerOf(tokenId);
-    const history = await fetchNFTHistory(tokenId);
-    const metadata = await fetchMetadata(tokenURI);
+    try {
+      console.log(`Fetching token ${tokenId}`);
+      const tokenURI = await contract.tokenURI(tokenId);
+      console.log(`Token ${tokenId} URI: ${tokenURI}`);
+      const owner = await contract.ownerOf(tokenId);
+      console.log(`Token ${tokenId} owner: ${owner}`);
+      const history = await fetchNFTHistory(tokenId);
+      const metadata = await fetchMetadata(tokenURI);
 
-    return {
-      id: tokenId,
-      tokenURI,
-      owner,
-      history,
-      metadata,
-    };
+      return {
+        id: tokenId,
+        tokenURI,
+        owner,
+        history,
+        metadata,
+      };
+    } catch (error) {
+      if (error.reason === "Token does not exist") {
+        console.log(`Token ${tokenId} does not exist`);
+        return null; // Return null if the token does not exist
+      } else {
+        throw error; // Re-throw other errors
+      }
+    }
   };
 
   const fetchMetadata = async (tokenURI) => {

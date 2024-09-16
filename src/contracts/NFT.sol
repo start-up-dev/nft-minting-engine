@@ -27,4 +27,18 @@ contract NFT is ERC721 {
     function totalSupply() public view returns (uint256) {
         return _tokenIdCounter;
     }
+
+    function batchMintNFT(address recipient, string[] memory tokenURIArray) public returns (uint256[] memory) {
+        uint256[] memory newTokenIds = new uint256[](tokenURIArray.length);
+        
+        for (uint256 i = 0; i < tokenURIArray.length; i++) {
+            uint256 newTokenId = _tokenIdCounter;
+            _safeMint(recipient, newTokenId);
+            _tokenURIs[newTokenId] = tokenURIArray[i];
+            newTokenIds[i] = newTokenId;
+            _tokenIdCounter++;
+        }
+        
+        return newTokenIds;
+    }
 }

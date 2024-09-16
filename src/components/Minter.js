@@ -13,9 +13,9 @@ const pinata = new PinataSDK({
 });
 
 function Minter() {
-  const [file, setFile] = useState(null);
-  const [name, setName] = useState("");
-  const [description, setDescription] = useState("");
+  const [files, setFiles] = useState([]);
+  const [names, setNames] = useState([]);
+  const [descriptions, setDescriptions] = useState([]);
   const [walletConnected, setWalletConnected] = useState(false);
   const [error, setError] = useState("");
   const [isLoading, setIsLoading] = useState(false);
@@ -57,7 +57,24 @@ function Minter() {
   };
 
   const handleFileChange = (e) => {
-    setFile(e.target.files[0]);
+    const selectedFiles = Array.from(e.target.files);
+    setFiles(selectedFiles);
+    setNames(selectedFiles.map((file) => file.name));
+    setDescriptions(
+      selectedFiles.map((file) => `Description for ${file.name}`)
+    );
+  };
+
+  const handleNameChange = (index, value) => {
+    const newNames = [...names];
+    newNames[index] = value;
+    setNames(newNames);
+  };
+
+  const handleDescriptionChange = (index, value) => {
+    const newDescriptions = [...descriptions];
+    newDescriptions[index] = value;
+    setDescriptions(newDescriptions);
   };
 
   const handleMint = async () => {
@@ -66,8 +83,12 @@ function Minter() {
       if (!walletConnected) return;
     }
 
-    if (!file || !name || !description) {
-      setError("Please select a file and provide name and description");
+    if (
+      files.length === 0 ||
+      names.length !== files.length ||
+      descriptions.length !== files.length
+    ) {
+      setError("Please provide files, names, and descriptions for all NFTs");
       return;
     }
 
@@ -75,24 +96,26 @@ function Minter() {
     setError("");
 
     try {
-      // Step 1: Upload file to IPFS
-      setMintingStep("Uploading file to IPFS...");
-      const result = await pinata.upload.file(file);
-      const ipfsHash = result.IpfsHash;
-      console.log("File uploaded to IPFS with hash:", ipfsHash);
+      setMintingStep("Uploading files to IPFS...");
+      const ipfsHashes = await Promise.all(
+        files.map((file) => pinata.upload.file(file))
+      );
 
-      // Step 2: Prepare and upload metadata
       setMintingStep("Preparing metadata...");
-      const metadata = {
-        name: name,
-        description: description,
-        image: `ipfs://${ipfsHash}`,
-      };
-      const metadataResult = await pinata.upload.json(metadata);
-      const metadataHash = metadataResult.IpfsHash;
+      const metadataArray = ipfsHashes.map((result, index) => ({
+        name: names[index],
+        description: descriptions[index],
+        image: `ipfs://${result.IpfsHash}`,
+      }));
 
-      // Step 3: Mint NFT
-      setMintingStep("Minting NFT...");
+      const metadataResults = await Promise.all(
+        metadataArray.map((metadata) => pinata.upload.json(metadata))
+      );
+      const metadataHashes = metadataResults.map(
+        (result) => `ipfs://${result.IpfsHash}`
+      );
+
+      setMintingStep("Minting NFTs...");
       if (!contract) {
         throw new Error("Contract is not initialized");
       }
@@ -101,32 +124,23 @@ function Minter() {
       const signer = await provider.getSigner();
       const address = await signer.getAddress();
 
-      console.log(
-        "Minting with parameters:",
-        address,
-        `ipfs://${metadataHash}`
-      );
-      const transaction = await contract.mintNFT(
-        address,
-        `ipfs://${metadataHash}`
-      );
-      console.log("Minting transaction sent:", transaction.hash);
+      console.log("Batch minting with parameters:", address, metadataHashes);
+      const transaction = await contract.batchMintNFT(address, metadataHashes);
+      console.log("Batch minting transaction sent:", transaction.hash);
       console.log("Waiting for confirmation...");
       const receipt = await transaction.wait();
       console.log("Transaction confirmed:", receipt);
 
-      console.log("NFT minted successfully!");
-      setMintingStep("NFT minted successfully!");
+      console.log("NFTs minted successfully!");
+      setMintingStep("NFTs minted successfully!");
 
       // Reset form fields
-      setFile(null);
-      setName("");
-      setDescription("");
-
-      setMintingStep("NFT minted successfully!");
+      setFiles([]);
+      setNames([]);
+      setDescriptions([]);
     } catch (error) {
-      console.error("Error minting NFT:", error);
-      setError("Error minting NFT. Please try again.");
+      console.error("Error minting NFTs:", error);
+      setError("Error minting NFTs. Please try again.");
     } finally {
       setIsLoading(false);
     }
@@ -198,34 +212,35 @@ function Minter() {
         <div className="rounded-md shadow-sm -space-y-px">
           <div>
             <label htmlFor="file-upload" className="sr-only">
-              Choose file
+              Choose files
             </label>
             <input
               id="file-upload"
               name="file-upload"
               type="file"
+              multiple
               onChange={handleFileChange}
               className="appearance-none rounded-none relative block w-full px-3 py-2 border border-gray-300 placeholder-gray-500 text-gray-900 rounded-t-md focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 focus:z-10 sm:text-sm"
             />
           </div>
-          <div>
-            <input
-              type="text"
-              placeholder="NFT Name"
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-              className="appearance-none rounded-none relative block w-full px-3 py-2 border border-gray-300 placeholder-gray-500 text-gray-900 focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 focus:z-10 sm:text-sm"
-            />
-          </div>
-          <div>
-            <input
-              type="text"
-              placeholder="NFT Description"
-              value={description}
-              onChange={(e) => setDescription(e.target.value)}
-              className="appearance-none rounded-none relative block w-full px-3 py-2 border border-gray-300 placeholder-gray-500 text-gray-900 rounded-b-md focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 focus:z-10 sm:text-sm"
-            />
-          </div>
+          {files.map((file, index) => (
+            <div key={index}>
+              <input
+                type="text"
+                placeholder={`NFT ${index + 1} Name (${file.name})`}
+                value={names[index] || ""}
+                onChange={(e) => handleNameChange(index, e.target.value)}
+                className="appearance-none rounded-none relative block w-full px-3 py-2 border border-gray-300 placeholder-gray-500 text-gray-900 focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 focus:z-10 sm:text-sm"
+              />
+              <input
+                type="text"
+                placeholder={`NFT ${index + 1} Description (${file.name})`}
+                value={descriptions[index] || ""}
+                onChange={(e) => handleDescriptionChange(index, e.target.value)}
+                className="appearance-none rounded-none relative block w-full px-3 py-2 border border-gray-300 placeholder-gray-500 text-gray-900 focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 focus:z-10 sm:text-sm"
+              />
+            </div>
+          ))}
         </div>
 
         {error && <div className="text-red-500 text-sm mt-2">{error}</div>}
@@ -240,7 +255,7 @@ function Minter() {
                 : "bg-green-600 hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-green-500"
             }`}
           >
-            {isLoading ? "Minting..." : "Mint NFT"}
+            {isLoading ? "Minting..." : "Mint NFTs"}
           </button>
         </div>
 
