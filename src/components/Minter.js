@@ -1,11 +1,15 @@
 import React, { useState, useEffect } from "react";
 import { PinataSDK } from "pinata-web3";
 import { ethers } from "ethers";
-import NFT from "../artifacts/src/contracts/NFT.sol/NFT.json";
+import NFTminting from "../artifacts/contracts/NFTminting.sol/NFTminting.json";
 
 const PINATA_JWT = process.env.REACT_APP_PINATA_JWT;
 const PINATA_GATEWAY = process.env.REACT_APP_PINATA_GATEWAY;
 const contractAddress = process.env.REACT_APP_CONTRACT_ADDRESS;
+
+// Polygon Amoy testnet configuration
+const POLYGON_AMOY_CHAIN_ID = "80002"; // Chain ID for Polygon Amoy testnet
+const POLYGON_AMOY_RPC_URL = "https://rpc-amoy.polygon.technology/"; // RPC URL for Polygon Amoy testnet
 
 const pinata = new PinataSDK({
   pinataJwt: PINATA_JWT,
@@ -21,6 +25,7 @@ function Minter() {
   const [isLoading, setIsLoading] = useState(false);
   const [mintingStep, setMintingStep] = useState("");
   const [contract, setContract] = useState(null);
+  const [networkError, setNetworkError] = useState(null);
 
   useEffect(() => {
     checkWalletConnection();
@@ -36,12 +41,59 @@ function Minter() {
     if (typeof window.ethereum !== "undefined") {
       try {
         await window.ethereum.request({ method: "eth_requestAccounts" });
+        const chainId = await window.ethereum.request({
+          method: "eth_chainId",
+        });
+        if (chainId !== POLYGON_AMOY_CHAIN_ID) {
+          try {
+            await window.ethereum.request({
+              method: "wallet_switchEthereumChain",
+              params: [
+                {
+                  chainId: `0x${parseInt(POLYGON_AMOY_CHAIN_ID).toString(16)}`,
+                },
+              ],
+            });
+          } catch (switchError) {
+            // This error code indicates that the chain has not been added to MetaMask.
+            if (switchError.code === 4902) {
+              try {
+                await window.ethereum.request({
+                  method: "wallet_addEthereumChain",
+                  params: [
+                    {
+                      chainId: `0x${parseInt(POLYGON_AMOY_CHAIN_ID).toString(
+                        16
+                      )}`,
+                      chainName: "Polygon Amoy Testnet",
+                      nativeCurrency: {
+                        name: "MATIC",
+                        symbol: "MATIC",
+                        decimals: 18,
+                      },
+                      rpcUrls: [POLYGON_AMOY_RPC_URL],
+                      blockExplorerUrls: ["https://www.oklink.com/amoy"],
+                    },
+                  ],
+                });
+              } catch (addError) {
+                throw addError;
+              }
+            }
+            throw switchError;
+          }
+        }
         setWalletConnected(true);
+        setNetworkError(null);
       } catch (error) {
-        console.error("User denied account access");
+        console.error("User denied account access or wrong network", error);
+        setNetworkError("Please connect to Polygon Amoy testnet");
       }
     } else {
       console.log("Please install MetaMask!");
+      setNetworkError(
+        "Please install MetaMask and connect to Polygon Amoy testnet"
+      );
     }
   };
 
@@ -49,10 +101,18 @@ function Minter() {
     try {
       const provider = new ethers.BrowserProvider(window.ethereum);
       const signer = await provider.getSigner();
-      const newContract = new ethers.Contract(contractAddress, NFT.abi, signer);
+      const newContract = new ethers.Contract(
+        contractAddress,
+        NFTminting.abi,
+        signer
+      );
       setContract(newContract);
+      console.log("Contract set up successfully");
     } catch (error) {
       console.error("Error setting up contract:", error);
+      setNetworkError(
+        "Error setting up contract. Please check your connection and try again."
+      );
     }
   };
 
@@ -78,9 +138,15 @@ function Minter() {
   };
 
   const handleMint = async () => {
-    if (!walletConnected) {
+    if (!walletConnected || networkError) {
       await checkWalletConnection();
-      if (!walletConnected) return;
+      if (!walletConnected || networkError) return;
+    }
+
+    if (!contract) {
+      console.error("Contract is not initialized");
+      setError("Contract is not initialized. Please try again.");
+      return;
     }
 
     if (
@@ -96,6 +162,12 @@ function Minter() {
     setError("");
 
     try {
+      // Remove the line trying to access contract.signer.getAddress()
+      // Instead, get the signer and address directly from the provider
+      const provider = new ethers.BrowserProvider(window.ethereum);
+      const signer = await provider.getSigner();
+      const address = await signer.getAddress();
+
       setMintingStep("Uploading files to IPFS...");
       const ipfsHashes = await Promise.all(
         files.map((file) => pinata.upload.file(file))
@@ -116,22 +188,61 @@ function Minter() {
       );
 
       setMintingStep("Minting NFTs...");
-      if (!contract) {
-        throw new Error("Contract is not initialized");
+
+      console.log("Minting NFTs with parameters:", address, metadataHashes);
+      console.log("Contract address:", contractAddress);
+      console.log("Contract ABI:", JSON.stringify(NFTminting.abi));
+
+      const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+      // Mint each NFT individually
+      for (let i = 0; i < metadataHashes.length; i++) {
+        try {
+          console.log(`Minting NFT ${i + 1}`);
+          const tokenId = ethers.toBigInt(Date.now() + i);
+
+          console.log("Minting with parameters:", {
+            address,
+            tokenId: tokenId.toString(),
+            contractAddress: contract.target,
+          });
+
+          // Estimate gas before sending the transaction
+          const estimatedGas = await contract.mint.estimateGas(
+            address,
+            tokenId
+          );
+          console.log("Estimated gas:", estimatedGas.toString());
+
+          // Calculate gas limit with 20% buffer
+          const gasLimit = (estimatedGas * 120n) / 100n;
+
+          const transaction = await contract.mint(address, tokenId, {
+            gasLimit: gasLimit,
+          });
+
+          console.log(`Minting transaction ${i + 1} sent:`, transaction.hash);
+          const receipt = await transaction.wait();
+          console.log(`NFT ${i + 1} minted successfully! Receipt:`, receipt);
+
+          // Store the mapping of tokenId to IPFS hash off-chain
+          await storeTokenURIMapping(tokenId.toString(), metadataHashes[i]);
+          console.log(`Token URI mapping stored for NFT ${i + 1}`);
+
+          await delay(2000); // 2 second delay between mints
+        } catch (mintError) {
+          console.error(`Error minting NFT ${i + 1}:`, mintError);
+          if (mintError.reason)
+            console.error("Error reason:", mintError.reason);
+          if (mintError.code) console.error("Error code:", mintError.code);
+          if (mintError.method)
+            console.error("Error method:", mintError.method);
+          if (mintError.transaction)
+            console.error("Error transaction:", mintError.transaction);
+          if (mintError.error) console.error("Inner error:", mintError.error);
+        }
       }
 
-      const provider = new ethers.BrowserProvider(window.ethereum);
-      const signer = await provider.getSigner();
-      const address = await signer.getAddress();
-
-      console.log("Batch minting with parameters:", address, metadataHashes);
-      const transaction = await contract.batchMintNFT(address, metadataHashes);
-      console.log("Batch minting transaction sent:", transaction.hash);
-      console.log("Waiting for confirmation...");
-      const receipt = await transaction.wait();
-      console.log("Transaction confirmed:", receipt);
-
-      console.log("NFTs minted successfully!");
       setMintingStep("NFTs minted successfully!");
 
       // Reset form fields
@@ -140,48 +251,25 @@ function Minter() {
       setDescriptions([]);
     } catch (error) {
       console.error("Error minting NFTs:", error);
+      // Log more details about the error
+      if (error.reason) console.error("Error reason:", error.reason);
+      if (error.code) console.error("Error code:", error.code);
+      if (error.method) console.error("Error method:", error.method);
+      if (error.transaction)
+        console.error("Error transaction:", error.transaction);
       setError("Error minting NFTs. Please try again.");
     } finally {
       setIsLoading(false);
     }
   };
 
-  const fetchNFTData = async () => {
-    try {
-      const provider = new ethers.BrowserProvider(window.ethereum);
-      const signer = await provider.getSigner();
-      const contract = new ethers.Contract(contractAddress, NFT.abi, signer);
-
-      // Check if totalSupply function exists
-      if (typeof contract.totalSupply !== "function") {
-        console.warn(
-          "totalSupply function not found in the contract. Fetching NFTs by ID."
-        );
-        await fetchNFTsByID(contract);
-      }
-    } catch (error) {
-      console.error("Error fetching NFT data:", error);
-    }
-  };
-
-  const fetchNFTsByID = async (contract) => {
-    let tokenId = 1;
-    while (true) {
-      try {
-        await contract.tokenURI(tokenId);
-        tokenId++;
-      } catch (error) {
-        console.log(`No more NFTs found after ID ${tokenId - 1}`);
-        break;
-      }
-    }
-  };
-
-  useEffect(() => {
-    if (contract) {
-      fetchNFTData();
-    }
-  }, [contract]);
+  // This function needs to be implemented based on your backend setup
+  async function storeTokenURIMapping(tokenId, ipfsHash) {
+    // Here you would store the mapping of tokenId to ipfsHash
+    // This could be in a database, a file, or another storage system
+    console.log(`Storing mapping: TokenID ${tokenId} -> IPFS Hash ${ipfsHash}`);
+    // Implement the actual storage logic here
+  }
 
   return (
     <div className="max-w-md w-full space-y-8 bg-white p-10 mx-auto rounded-xl shadow-lg">
@@ -285,6 +373,7 @@ function Minter() {
           </div>
         )}
       </form>
+      {networkError && <div className="error">{networkError}</div>}
     </div>
   );
 }

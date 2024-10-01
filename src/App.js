@@ -3,6 +3,7 @@ import { BrowserRouter as Router, Route, Link, Routes } from "react-router-dom";
 import { FaHome, FaPlusCircle, FaImages } from "react-icons/fa";
 import Minter from "./components/Minter";
 import NFTGallery from "./components/NFTGallery";
+import NFTMinter from "./components/NFTMinter";
 
 function App() {
   return (
@@ -38,7 +39,7 @@ function App() {
             <div className="w-full max-w-6xl p-6">
               <Routes>
                 <Route path="/" element={<Home />} />
-                <Route path="/mint" element={<Minter />} />
+                <Route path="/mint" element={<NFTMinter />} />
                 <Route path="/gallery" element={<NFTGallery />} />
               </Routes>
             </div>
